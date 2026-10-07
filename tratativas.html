@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel OT — Diário de Tratativas (Demo)</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="css/app.css" rel="stylesheet">
+</head>
+<body>
+<main class="container-xl pb-4">
+  <h1 class="titulo">Diário de Tratativas</h1>
+  <p class="sub">Registro das ações sobre On Time, dispersões de KM/Tempo e devoluções, por revenda. Demo pública: qualquer visitante pode incluir e editar.</p>
+  <div id="aviso"></div>
+  <div class="cartao mb-3"><div class="row g-2 align-items-end">
+    <div class="col-md-4"><label class="form-label small mb-1" for="fRev">Revenda</label><select id="fRev" class="form-select form-select-sm"></select></div>
+    <div class="col-md-3"><label class="form-label small mb-1" for="fSt">Status</label><select id="fSt" class="form-select form-select-sm"><option value="">Todos</option><option>Aberta</option><option>Em andamento</option><option>Resolvida</option></select></div>
+    <div class="col-md-5 text-md-end"><button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#mdl">+ Nova tratativa</button></div>
+  </div></div>
+  <div class="cartao"><div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Data</th><th>Mapa</th><th>Tipo</th><th>Descrição</th><th>Ação</th><th>Responsável</th><th>Status</th><th></th></tr></thead><tbody id="tb"></tbody></table></div></div>
+</main>
+
+<div class="modal fade" id="mdl" tabindex="-1"><div class="modal-dialog"><form class="modal-content" id="frm">
+  <div class="modal-header"><h2 class="modal-title h5">Nova tratativa</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button></div>
+  <div class="modal-body row g-2">
+    <div class="col-6"><label class="form-label small" for="nData">Data</label><input id="nData" type="date" class="form-control form-control-sm" required></div>
+    <div class="col-6"><label class="form-label small" for="nMapa">Nº do mapa (opcional)</label><input id="nMapa" type="number" min="1" class="form-control form-control-sm"></div>
+    <div class="col-12"><label class="form-label small" for="nTipo">Tipo</label><select id="nTipo" class="form-select form-select-sm"><option>On Time</option><option>Dispersão de KM</option><option>Dispersão de Tempo</option><option>Devolução</option><option>Outro</option></select></div>
+    <div class="col-12"><label class="form-label small" for="nDesc">Descrição</label><textarea id="nDesc" class="form-control form-control-sm" rows="2" minlength="3" maxlength="500" required></textarea></div>
+    <div class="col-12"><label class="form-label small" for="nAcao">Ação</label><textarea id="nAcao" class="form-control form-control-sm" rows="2" maxlength="500"></textarea></div>
+    <div class="col-12"><label class="form-label small" for="nResp">Responsável</label><input id="nResp" class="form-control form-control-sm" maxlength="80"></div>
+    <div class="col-12 small text-muted">Não informe dados pessoais reais — ambiente público de demonstração.</div>
+  </div>
+  <div class="modal-footer"><button class="btn btn-primary btn-sm">Salvar</button></div>
+</form></div></div>
+
+<footer>Dados fictícios</footer>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/app.js"></script>
+<script>
+nav('tratativas.html');
+const $ = id => document.getElementById(id);
+const COR = { 'Aberta': 'danger', 'Em andamento': 'warning', 'Resolvida': 'success' };
+
+async function listar() {
+  aviso($('aviso'), '');
+  let q = sb.from('tratativas').select('*').eq('revenda_id', $('fRev').value).order('data', { ascending: false }).order('criado_em', { ascending: false }).limit(200);
+  if ($('fSt').value) q = q.eq('status', $('fSt').value);
+  const { data, error } = await q;
+  if (error) return aviso($('aviso'), 'Erro: ' + error.message);
+  $('tb').innerHTML = data.map(t => `<tr><td>${fmtData(t.data)}</td><td>${t.mapa_numero ?? '—'}</td><td>${esc(t.tipo)}</td><td>${esc(t.descricao)}</td><td>${esc(t.acao)}</td><td>${esc(t.responsavel)}</td>
+    <td><select class="form-select form-select-sm border-${COR[t.status]}" data-id="${esc(t.id)}">${Object.keys(COR).map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select></td>
+    <td><button class="btn btn-sm btn-outline-danger" data-del="${esc(t.id)}" aria-label="Excluir">×</button></td></tr>`).join('') || '<tr><td colspan="8" class="text-muted">Nenhuma tratativa.</td></tr>';
+}
+$('tb').addEventListener('change', async e => {
+  if (!e.target.dataset.id) return;
+  const { error } = await sb.from('tratativas').update({ status: e.target.value }).eq('id', e.target.dataset.id);
+  error ? aviso($('aviso'), 'Erro: ' + error.message) : listar();
+});
+$('tb').addEventListener('click', async e => {
+  const id = e.target.dataset.del; if (!id || !confirm('Excluir esta tratativa?')) return;
+  const { error } = await sb.from('tratativas').delete().eq('id', id);
+  error ? aviso($('aviso'), 'Erro: ' + error.message) : listar();
+});
+$('frm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const { error } = await sb.from('tratativas').insert({ revenda_id: $('fRev').value, data: $('nData').value, mapa_numero: $('nMapa').value || null, tipo: $('nTipo').value,
+    descricao: $('nDesc').value.trim(), acao: $('nAcao').value.trim() || null, responsavel: $('nResp').value.trim() || null });
+  if (error) return aviso($('aviso'), 'Erro: ' + error.message);
+  bootstrap.Modal.getInstance($('mdl')).hide(); $('frm').reset(); $('nData').value = hoje; listar();
+});
+let hoje = new Date().toISOString().slice(0, 10);
+(async () => {
+  try { await carregarRevendas($('fRev')); $('nData').value = hoje; $('fRev').onchange = $('fSt').onchange = listar; await listar(); }
+  catch (e) { aviso($('aviso'), 'Erro de conexão: ' + e.message); }
+})();
+</script>
+</body></html>

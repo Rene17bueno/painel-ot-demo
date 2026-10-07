@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel OT — Relatório de Rotas (Demo)</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="css/app.css" rel="stylesheet">
+</head>
+<body>
+<main class="container-xl pb-4">
+  <h1 class="titulo">Relatório Diário de Rotas</h1>
+  <p class="sub">Ranking de dispersão, análise por Mapa em texto corrido e PDV causador. Mapas inválidos ficam fora da medição.</p>
+  <div id="aviso"></div>
+  <div class="cartao mb-3"><div class="row g-2 align-items-end">
+    <div class="col-md-5"><label class="form-label small mb-1" for="fRev">Revenda</label><select id="fRev" class="form-select form-select-sm"></select></div>
+    <div class="col-6 col-md-3"><label class="form-label small mb-1" for="fData">Data</label><input id="fData" type="date" class="form-control form-control-sm"></div>
+    <div class="col-6 col-md-2"><label class="form-label small mb-1" for="fGrupo">Origem</label><select id="fGrupo" class="form-select form-select-sm"><option value="">Todas</option><option>Depósito</option><option>PA</option><option>Spot</option></select></div>
+    <div class="col-md-2"><button id="btn" class="btn btn-sm btn-primary w-100">Gerar</button></div>
+  </div></div>
+
+  <div id="resumo" class="row g-3 mb-3"></div>
+  <h2 class="h5 mt-3">Mapas em destaque (maiores dispersões de tempo)</h2>
+  <div id="cards"></div>
+  <h2 class="h5 mt-4">Todos os mapas do dia</h2>
+  <div class="cartao"><div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Mapa</th><th>Placa</th><th>Origem</th><th class="text-end">Saída</th><th class="text-end">Entrada</th><th class="text-end">TML</th><th class="text-end">TR</th><th class="text-end">TI</th><th class="text-end">JL</th><th class="text-end">Disp. T</th><th class="text-end">Disp. KM</th><th class="text-end">Ocup.</th><th>Situação</th></tr></thead>
+    <tbody id="tb"></tbody></table></div></div>
+</main>
+<footer>Dados fictícios · regras DPO em “Metodologia DPO”</footer>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/app.js"></script>
+<script>
+nav('mapas.html');
+const $ = id => document.getElementById(id);
+let MAPAS = [];
+const badge = (ok, t) => `<span class="badge ${ok ? 'text-bg-success' : 'text-bg-danger'}">${t}</span>`;
+
+async function gerar() {
+  aviso($('aviso'), '');
+  try {
+    const rev = $('fRev').value, data = $('fData').value, grupo = $('fGrupo').value;
+    MAPAS = await all(() => { let b = sb.from('v_mapas').select('*').eq('revenda_id', rev).eq('data', data).order('numero'); return grupo ? b.eq('grupo', grupo) : b; });
+    const val = MAPAS.filter(m => m.valido_hr), rank = [...val].sort((a, b) => Math.abs(b.disp_tempo_pct) - Math.abs(a.disp_tempo_pct));
+    const a = agregar([{ mapas: MAPAS.length, n_hr: val.length, n_km: MAPAS.filter(m => m.valido_km).length,
+      s_tml: val.reduce((s, m) => s + m.tml_min, 0), s_tr: val.reduce((s, m) => s + m.tr_min, 0), s_ti: val.reduce((s, m) => s + m.ti_min, 0), s_jl: val.reduce((s, m) => s + m.jl_min, 0),
+      ok_tr: val.filter(m => m.tr_min <= m.meta_tr_min).length, ok_tml: 0, ok_ti: 0, ok_jl: 0, s_disp_t: val.reduce((s, m) => s + Math.abs(m.disp_tempo_pct), 0), s_disp_km: 0, s_cx: 0, s_cap: 0, n_improdutivos: 0 }]);
+    $('resumo').innerHTML = [['Mapas', MAPAS.length], ['Inválidos (horário)', a.invalidosHr], ['TR médio', hhmm(a.tr)], ['Disp. tempo média (módulo)', pct(a.dispT)]]
+      .map(([r, v]) => `<div class="col-6 col-md-3"><div class="cartao kpi"><div class="rot">${r}</div><div class="val">${v}</div></div></div>`).join('');
+    $('cards').innerHTML = rank.slice(0, 6).map(m => {
+      const n = narrativa(m);
+      return `<div class="narrativa"><div>${esc(n.txt)}</div>${n.acoes.length ? `<div class="fazer">O que fazer: ${esc(n.acoes.join('; '))}.</div>` : ''}
+        <button class="btn btn-outline-secondary btn-sm mt-2" data-id="${esc(m.id)}">Ver PDVs e causador</button><div class="pdvs mt-2"></div></div>`;
+    }).join('') || '<p class="text-muted">Sem mapas válidos nessa data/filtro.</p>';
+    $('tb').innerHTML = MAPAS.map(m => `<tr><td>${m.numero}</td><td>${esc(m.placa)}</td><td>${esc(m.grupo)}</td><td class="text-end">${hhmm(m.sai_min)}</td><td class="text-end">${hhmm(m.entr_min)}</td>
+      <td class="text-end">${hhmm(m.tml_min)}</td><td class="text-end">${hhmm(m.tr_min)}</td><td class="text-end">${hhmm(m.ti_min)}</td><td class="text-end">${hhmm(m.jl_min)}</td>
+      <td class="text-end">${m.valido_hr ? sgn(m.disp_tempo_pct) : '—'}</td><td class="text-end">${m.valido_km ? sgn(m.disp_km_pct) : '—'}</td><td class="text-end">${pct(m.ocupacao_pct, 0)}</td>
+      <td>${m.valido_hr ? badge(m.jl_min <= m.meta_jl_min, 'JL') : '<span class="badge text-bg-secondary">inválido</span>'}</td></tr>`).join('');
+  } catch (e) { aviso($('aviso'), 'Erro: ' + e.message); }
+}
+
+// PDV causador = maior atraso incremental entre visitas consecutivas (real × estimado)
+$('cards').addEventListener('click', async ev => {
+  const bt = ev.target.closest('button[data-id]'); if (!bt) return;
+  const alvo = bt.parentElement.querySelector('.pdvs'); alvo.textContent = 'Carregando…';
+  const { data, error } = await sb.from('v_atendimentos_det').select('*').eq('mapa_id', bt.dataset.id).order('ordem');
+  if (error) { alvo.textContent = 'Erro: ' + error.message; return; }
+  let ant = 0, pior = null;
+  const linhas = data.map(a => { const inc = a.atraso_min - ant; ant = a.atraso_min; if (!pior || inc > pior.inc) pior = { inc, a }; return { a, inc }; });
+  alvo.innerHTML = (pior && pior.inc >= 5 ? `<div class="small mb-1"><strong>PDV causador:</strong> ${esc(pior.a.cliente)} (cód. ${pior.a.cod_cliente}) — acrescentou ${hhmm(pior.inc)} de atraso na sequência.</div>` : '<div class="small mb-1">Nenhum PDV com acréscimo de atraso ≥ 5 min.</div>') +
+    `<table class="table table-sm mb-0"><thead><tr><th>#</th><th>PDV</th><th class="text-end">Estimado</th><th class="text-end">Chegou</th><th class="text-end">Atraso acum.</th></tr></thead><tbody>` +
+    linhas.map(({ a, inc }) => `<tr class="${pior && a === pior.a && pior.inc >= 5 ? 'table-warning' : ''}"><td>${a.ordem}</td><td>${esc(a.cliente)}</td><td class="text-end">${hhmm(a.est_chegada_min)}</td><td class="text-end">${hhmm(a.chegou_min)}</td><td class="text-end">${a.atraso_min} min</td></tr>`).join('') + '</tbody></table>';
+});
+
+(async () => {
+  try {
+    await carregarRevendas($('fRev')); $('fData').value = await ultimaData();
+    $('btn').onclick = gerar; await gerar();
+  } catch (e) { aviso($('aviso'), 'Erro de conexão: ' + e.message); }
+})();
+</script>
+</body></html>

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel OT — Revendas (Demo)</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="css/app.css" rel="stylesheet">
+</head>
+<body>
+<main class="container-xl pb-4">
+  <h1 class="titulo">Cadastro de Revendas</h1>
+  <p class="sub">Cadastre uma revenda com suas metas DPO e gere 60 dias de dados fictícios para explorar todos os relatórios. Revendas “semente” são protegidas.</p>
+  <div id="aviso"></div>
+  <div class="row g-3">
+    <div class="col-lg-4"><form id="frm" class="cartao row g-2">
+      <h2 class="h6">Nova revenda</h2>
+      <div class="col-4"><label class="form-label small" for="cod">Código</label><input id="cod" class="form-control form-control-sm text-uppercase" pattern="[A-Za-z0-9]{2,4}" maxlength="4" required></div>
+      <div class="col-8"><label class="form-label small" for="nome">Nome</label><input id="nome" class="form-control form-control-sm" minlength="3" maxlength="80" required></div>
+      <div class="col-8"><label class="form-label small" for="cid">Cidade</label><input id="cid" class="form-control form-control-sm" maxlength="60" required></div>
+      <div class="col-4"><label class="form-label small" for="uf">UF</label><input id="uf" class="form-control form-control-sm text-uppercase" pattern="[A-Za-z]{2}" maxlength="2" required></div>
+      <div class="col-4"><label class="form-label small" for="mtml">Meta TML (min)</label><input id="mtml" type="number" value="30" min="1" max="240" class="form-control form-control-sm"></div>
+      <div class="col-4"><label class="form-label small" for="mtr">Meta TR (min)</label><input id="mtr" type="number" value="560" min="60" max="900" class="form-control form-control-sm"></div>
+      <div class="col-4"><label class="form-label small" for="mti">Meta TI (min)</label><input id="mti" type="number" value="30" min="1" max="240" class="form-control form-control-sm"></div>
+      <div class="col-12 small text-muted">Meta JL = TML + TR + TI. Padrão: 00:30 + 09:20 + 00:30 = 10:20.</div>
+      <div class="col-12"><button class="btn btn-primary btn-sm">Cadastrar</button></div>
+    </form></div>
+    <div class="col-lg-8"><div class="cartao"><div class="table-responsive"><table class="table table-sm align-middle mb-0">
+      <thead><tr><th>Código</th><th>Nome</th><th>Cidade</th><th>Metas TML/TR/TI</th><th>Mapas</th><th></th></tr></thead><tbody id="tb"></tbody></table></div></div></div>
+  </div>
+</main>
+<footer>Limite de 12 revendas na demo · dados fictícios</footer>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/app.js"></script>
+<script>
+nav('revendas.html');
+const $ = id => document.getElementById(id);
+async function listar() {
+  const { data, error } = await sb.from('revendas').select('*').order('codigo');
+  if (error) return aviso($('aviso'), 'Erro: ' + error.message);
+  const cont = {};
+  await Promise.all(data.map(async r => { const { count } = await sb.from('mapas').select('id', { count: 'exact', head: true }).eq('revenda_id', r.id); cont[r.id] = count || 0; }));
+  $('tb').innerHTML = data.map(r => `<tr><td><strong>${esc(r.codigo)}</strong></td><td>${esc(r.nome)} ${r.demo_base ? '<span class="badge text-bg-secondary">semente</span>' : ''}</td><td>${esc(r.cidade)}/${esc(r.uf)}</td>
+    <td>${hhmm(r.meta_tml_min)} / ${hhmm(r.meta_tr_min)} / ${hhmm(r.meta_ti_min)}</td><td>${cont[r.id]}</td>
+    <td class="text-nowrap">${cont[r.id] ? '' : `<button class="btn btn-sm btn-outline-primary" data-gen="${esc(r.id)}">Gerar dados</button> `}${r.demo_base ? '' : `<button class="btn btn-sm btn-outline-danger" data-del="${esc(r.id)}">Excluir</button>`}</td></tr>`).join('');
+}
+$('frm').addEventListener('submit', async e => {
+  e.preventDefault(); aviso($('aviso'), '');
+  const { error } = await sb.from('revendas').insert({ codigo: $('cod').value.toUpperCase(), nome: $('nome').value.trim(), cidade: $('cid').value.trim(), uf: $('uf').value.toUpperCase(),
+    meta_tml_min: +$('mtml').value, meta_tr_min: +$('mtr').value, meta_ti_min: +$('mti').value });
+  if (error) return aviso($('aviso'), error.code === '23505' ? 'Código já cadastrado.' : 'Erro: ' + error.message);
+  $('frm').reset(); $('mtml').value = 30; $('mtr').value = 560; $('mti').value = 30; listar();
+});
+$('tb').addEventListener('click', async e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.gen) {
+    b.disabled = true; b.textContent = 'Gerando…';
+    const { error } = await sb.rpc('gerar_demo', { p_revenda: b.dataset.gen, p_dias: 60 });
+    if (error) aviso($('aviso'), 'Erro: ' + error.message);
+    listar();
+  } else if (b.dataset.del && confirm('Excluir esta revenda e todos os seus dados?')) {
+    const { error } = await sb.from('revendas').delete().eq('id', b.dataset.del);
+    if (error) aviso($('aviso'), 'Erro: ' + error.message);
+    listar();
+  }
+});
+listar().catch(e => aviso($('aviso'), 'Erro de conexão: ' + e.message));
+</script>
+</body></html>

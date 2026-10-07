@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel OT — Metodologia DPO (Demo)</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="css/app.css" rel="stylesheet">
+</head>
+<body>
+<main class="container-xl pb-4" style="max-width: 980px">
+  <h1 class="titulo">Metodologia DPO — Pilar Entrega (Rota)</h1>
+  <p class="sub">Como cada indicador é calculado neste painel. DPO (Distribution Process Optimisation) é a metodologia de gestão de distribuição usada em operações de cervejaria; esta página documenta a implementação de referência do projeto, com metas parametrizáveis por revenda.</p>
+
+  <section class="cartao mb-3"><h2 class="h5">1. Indicadores de tempo</h2>
+    <div class="table-responsive"><table class="table table-sm">
+      <thead><tr><th>Indicador</th><th>Definição</th><th>Fórmula</th><th>Meta padrão</th></tr></thead><tbody>
+      <tr><td><strong>TML</strong> — Tempo Médio de Liberação</td><td>Tempo que o caminhão leva para sair da revenda; âncora de início às 07:00 (carência até 06:50)</td><td><code>saída − 07:00</code></td><td>00:30</td></tr>
+      <tr><td><strong>TR</strong> — Tempo em Rota</td><td>Da saída na portaria ao retorno</td><td><code>entrada − saída</code></td><td>09:20</td></tr>
+      <tr><td><strong>TI</strong> — Tempo Interno</td><td>Prestação de contas física e financeira</td><td><code>fechamento − entrada</code></td><td>00:30</td></tr>
+      <tr><td><strong>JL</strong> — Jornada Líquida</td><td>Total da jornada; não pode ultrapassar a jornada legal</td><td><code>TML + TR + TI</code></td><td>10:20</td></tr>
+      <tr><td><strong>% TML / TR / TI / JL</strong></td><td>% de mapas dentro da meta</td><td><code>mapas ≤ meta ÷ mapas válidos × 100</code></td><td>—</td></tr>
+    </tbody></table></div></section>
+
+  <section class="cartao mb-3"><h2 class="h5">2. Dispersões</h2>
+    <div class="table-responsive"><table class="table table-sm">
+      <thead><tr><th>Indicador</th><th>Fórmula</th><th>Leitura</th></tr></thead><tbody>
+      <tr><td><strong>Dispersão de Tempo %</strong></td><td><code>(TR ÷ tempo previsto − 1) × 100</code></td><td>+ atrasado · − adiantado; rankings usam o módulo</td></tr>
+      <tr><td><strong>Dispersão de KM %</strong></td><td><code>(KM real ÷ KM previsto − 1) × 100</code></td><td>+ rodou mais · − rodou menos</td></tr>
+    </tbody></table></div></section>
+
+  <section class="cartao mb-3"><h2 class="h5">3. Mapas inválidos (fora da medição)</h2>
+    <ul class="mb-0">
+      <li><strong>Horário:</strong> saída = entrada, TR zerado ou tempo previsto vazio/zero.</li>
+      <li><strong>KM:</strong> KM previsto ≤ 1, KM real zerado ou KM real &gt; 600.</li>
+      <li>Médias, % de meta e dispersões usam apenas mapas válidos; a contagem de inválidos é exibida no dashboard.</li>
+    </ul></section>
+
+  <section class="cartao mb-3"><h2 class="h5">4. Utilização e produtividade</h2>
+    <ul class="mb-0">
+      <li><strong>Ocupação %</strong> = caixas carregadas ÷ capacidade do caminhão (caixas convertidas) × 100.</li>
+      <li><strong>Mapa improdutivo</strong> = ocupação &lt; 70% <em>e</em> tempo em rota &lt; 5 h; <strong>% improdutivos</strong> = improdutivos ÷ total de mapas.</li>
+      <li><strong>Origem do mapa:</strong> Depósito, PA (Ponto de Apoio) ou Spot (freteiro) — indicadores sempre separados por origem, nunca misturados.</li>
+    </ul></section>
+
+  <section class="cartao mb-3"><h2 class="h5">5. Devolução — regra do PDV devolvido</h2>
+    <p class="mb-1">O PDV é a unidade principal: conta <strong>uma vez por mapa</strong>, mesmo com várias NFs. NF, valor e volume são medidas complementares.</p>
+    <p class="mb-0"><code>Devolução PDV % = PDVs devolvidos ÷ entregas realizadas × 100</code> (proxy da devolução em NFs).</p></section>
+
+  <section class="cartao mb-3"><h2 class="h5">6. Como o banco calcula (PostgreSQL)</h2>
+    <code class="sql">-- colunas geradas na tabela mapas (DPO: TML, TR, JL)
+tr_min  int generated always as (entr_min - sai_min) stored,
+tml_min int generated always as (greatest(sai_min - 420, 0)) stored,
+jl_min  int generated always as (greatest(sai_min - 420, 0) + (entr_min - sai_min) + ti_min) stored
+
+-- v_mapas: validade e dispersões
+(tr_min &gt; 0 and sai_min &lt;&gt; entr_min and tempo_prev_min &gt; 0)            as valido_hr,
+(km_prev &gt; 1 and km_real &gt; 0 and km_real &lt;= 600)                       as valido_km,
+round(((tr_min::numeric / nullif(tempo_prev_min,0)) - 1) * 100, 1)       as disp_tempo_pct</code></section>
+
+  <section class="cartao"><h2 class="h5">7. Arquitetura</h2>
+    <ul class="mb-0">
+      <li><strong>Front-end:</strong> HTML5, CSS, JavaScript e Bootstrap 5 — estático, sem build.</li>
+      <li><strong>Banco:</strong> Supabase (PostgreSQL) com RLS: leitura pública; escrita restrita a revendas (não-semente) e tratativas.</li>
+      <li><strong>Agregações no servidor:</strong> views <code>v_kpi_dia</code>, <code>v_dev_dia</code> com <code>security_invoker</code>; o navegador só soma e pondera.</li>
+      <li><strong>Multi-revenda:</strong> toda tabela carrega <code>revenda_id</code>; metas são parâmetros da revenda.</li>
+      <li><strong>Dados:</strong> 100% fictícios, gerados por função SQL (<code>gerar_demo</code>).</li>
+    </ul></section>
+</main>
+<footer>Projeto de portfólio · independente, sem vínculo com qualquer empresa</footer>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/app.js"></script>
+<script>nav('dpo.html');</script>
+</body></html>

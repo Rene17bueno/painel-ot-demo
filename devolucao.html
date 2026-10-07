@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel OT — Devolução (Demo)</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="css/app.css" rel="stylesheet">
+</head>
+<body>
+<main class="container-xl pb-4">
+  <h1 class="titulo">Devolução por PDV</h1>
+  <p class="sub">Regra: o <strong>PDV devolvido</strong> é a unidade principal (conta 1× por mapa, mesmo com várias NFs); NF e valor são medidas complementares.</p>
+  <div id="aviso"></div>
+  <div class="cartao mb-3"><div class="row g-2 align-items-end">
+    <div class="col-md-4"><label class="form-label small mb-1" for="fRev">Revenda</label><select id="fRev" class="form-select form-select-sm"></select></div>
+    <div class="col-6 col-md-3"><label class="form-label small mb-1" for="fDe">De</label><input id="fDe" type="date" class="form-control form-control-sm"></div>
+    <div class="col-6 col-md-3"><label class="form-label small mb-1" for="fAte">Até</label><input id="fAte" type="date" class="form-control form-control-sm"></div>
+    <div class="col-md-2"><button id="btn" class="btn btn-sm btn-primary w-100">Atualizar</button></div>
+  </div></div>
+  <div id="kpis" class="row g-3 mb-3"></div>
+  <div class="row g-3">
+    <div class="col-lg-6"><div class="cartao"><h2 class="h6">PDVs devolvidos por motivo</h2><div class="chart-box"><canvas id="cMot"></canvas></div></div></div>
+    <div class="col-lg-6"><div class="cartao"><h2 class="h6">PDVs reincidentes (mapas distintos com devolução)</h2>
+      <table class="table table-sm mb-0"><thead><tr><th>PDV</th><th class="text-end">Mapas</th><th class="text-end">NFs</th><th class="text-end">Valor</th></tr></thead><tbody id="reinc"></tbody></table></div></div>
+  </div>
+</main>
+<footer>Dados fictícios · devolução PDV % = PDVs devolvidos ÷ entregas</footer>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4"></script>
+<script src="js/app.js"></script>
+<script>
+nav('devolucao.html');
+const $ = id => document.getElementById(id);
+let g;
+async function atualizar() {
+  aviso($('aviso'), '');
+  try {
+    const rev = $('fRev').value, de = $('fDe').value, ate = $('fAte').value;
+    const det = await all(() => sb.from('v_devolucoes_det').select('*').eq('revenda_id', rev).gte('data', de).lte('data', ate).order('id'));
+    const kp = await all(() => sb.from('v_kpi_dia').select('s_entregas').eq('revenda_id', rev).gte('data', de).lte('data', ate));
+    const entregas = kp.reduce((s, r) => s + +r.s_entregas, 0);
+    const pdvs = new Set(det.map(d => d.mapa + '|' + d.cod_cliente)); // PDV 1x por mapa
+    const valor = det.reduce((s, d) => s + +d.valor, 0), hl = det.reduce((s, d) => s + +d.volume_hl, 0);
+    const k = (r, v, m = '') => `<div class="col-6 col-md-3"><div class="cartao kpi"><div class="rot">${r}</div><div class="val">${v}</div><div class="meta">${m}</div></div></div>`;
+    $('kpis').innerHTML = k('PDVs devolvidos', nf(pdvs.size, 0), 'unidade principal') + k('Devolução PDV %', pct(entregas ? pdvs.size * 100 / entregas : null, 2), `${nf(entregas, 0)} entregas`) +
+      k('NFs devolvidas', nf(det.length, 0), 'complementar') + k('Valor devolvido', brl(valor), `${nf(hl, 1)} hl`);
+    const mot = {}; det.forEach(d => { (mot[d.motivo] ??= new Set()).add(d.mapa + '|' + d.cod_cliente); });
+    const lm = Object.entries(mot).map(([m, s]) => [m, s.size]).sort((a, b) => b[1] - a[1]);
+    g?.destroy();
+    g = new Chart($('cMot'), { type: 'bar', data: { labels: lm.map(x => x[0]), datasets: [{ label: 'PDVs', data: lm.map(x => x[1]), backgroundColor: '#0f3b57' }] }, options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false } } } });
+    const cli = {}; det.forEach(d => { const c = cli[d.cod_cliente] ??= { nome: d.cliente, mapas: new Set(), nfs: 0, valor: 0 }; c.mapas.add(d.mapa); c.nfs++; c.valor += +d.valor; });
+    $('reinc').innerHTML = Object.entries(cli).sort((a, b) => b[1].mapas.size - a[1].mapas.size || b[1].valor - a[1].valor).slice(0, 10)
+      .map(([cod, c]) => `<tr><td>${esc(c.nome)} <span class="text-muted">(${cod})</span></td><td class="text-end">${c.mapas.size}</td><td class="text-end">${c.nfs}</td><td class="text-end">${brl(c.valor)}</td></tr>`).join('');
+  } catch (e) { aviso($('aviso'), 'Erro: ' + e.message); }
+}
+(async () => {
+  try { await carregarRevendas($('fRev')); const fim = await ultimaData(); $('fAte').value = fim; $('fDe').value = addDias(fim, -29); $('btn').onclick = atualizar; await atualizar(); }
+  catch (e) { aviso($('aviso'), 'Erro de conexão: ' + e.message); }
+})();
+</script>
+</body></html>

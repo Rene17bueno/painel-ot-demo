@@ -1,0 +1,19 @@
+:root { --ink:#16222e; --brand:#0f3b57; --accent:#f2a900; --soft:#f4f6f8; --line:#e2e7ec; }
+body { background: var(--soft); color: var(--ink); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.app-nav { background: var(--brand); }
+.app-nav .nav-link { color: #cfe0ec; border-radius: .4rem; padding: .4rem .8rem; }
+.app-nav .nav-link.active, .app-nav .nav-link:hover { color: #fff; background: rgba(255,255,255,.12); }
+.demo-faixa { background: #fff6dc; border-bottom: 1px solid #f1deaa; font-size: .82rem; text-align: center; padding: .35rem 1rem; }
+h1.titulo { font-size: 1.4rem; font-weight: 650; letter-spacing: -.01em; margin: 1.2rem 0 .2rem; }
+.sub { color: #5d6b78; font-size: .9rem; margin-bottom: 1rem; }
+.cartao { background: #fff; border: 1px solid var(--line); border-radius: .6rem; padding: 1rem 1.1rem; }
+.kpi .rot { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: #5d6b78; }
+.kpi .val { font-size: 1.6rem; font-weight: 650; line-height: 1.15; }
+.kpi .meta { font-size: .78rem; color: #5d6b78; }
+.table { --bs-table-bg: transparent; font-size: .87rem; }
+.table thead th { font-size: .74rem; text-transform: uppercase; letter-spacing: .04em; color: #5d6b78; white-space: nowrap; }
+.narrativa { background:#fff; border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:.5rem; padding:.8rem 1rem; margin-bottom:.8rem; font-size:.9rem; }
+.narrativa .fazer { margin-top:.4rem; font-weight:600; }
+.chart-box { position: relative; height: 280px; }
+code.sql { background:#0f1b26; color:#d6e4f0; padding:.8rem 1rem; border-radius:.5rem; display:block; white-space:pre-wrap; font-size:.8rem; }
+footer { color:#7a8794; font-size:.78rem; text-align:center; padding:2rem 0 1.5rem; }

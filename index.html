@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel OT — Dashboard DPO (Demo)</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="css/app.css" rel="stylesheet">
+</head>
+<body>
+<main class="container-xl pb-4">
+  <h1 class="titulo">Dashboard de Indicadores de Rota (DPO)</h1>
+  <p class="sub">TML, TR, TI, JL, dispersões, ocupação e devolução por revenda e origem (Depósito · PA · Spot).</p>
+  <div id="aviso"></div>
+  <div class="cartao mb-3"><div class="row g-2 align-items-end">
+    <div class="col-md-4"><label class="form-label small mb-1" for="fRev">Revenda</label><select id="fRev" class="form-select form-select-sm"></select></div>
+    <div class="col-6 col-md-3"><label class="form-label small mb-1" for="fDe">De</label><input id="fDe" type="date" class="form-control form-control-sm"></div>
+    <div class="col-6 col-md-3"><label class="form-label small mb-1" for="fAte">Até</label><input id="fAte" type="date" class="form-control form-control-sm"></div>
+    <div class="col-md-2"><button id="btn" class="btn btn-sm btn-primary w-100">Atualizar</button></div>
+  </div></div>
+
+  <div class="row g-3 mb-3" id="kpis"></div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-lg-6"><div class="cartao"><h2 class="h6">% de mapas dentro da meta, por revenda</h2><div class="chart-box"><canvas id="cRev"></canvas></div></div></div>
+    <div class="col-lg-6"><div class="cartao"><h2 class="h6">TML e TR médios por dia (min)</h2><div class="chart-box"><canvas id="cDia"></canvas></div></div></div>
+  </div>
+
+  <div class="cartao"><h2 class="h6">Macro — por revenda e origem</h2>
+    <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+      <thead><tr><th>Revenda</th><th>Origem</th><th class="text-end">Mapas</th><th class="text-end">TML</th><th class="text-end">TR</th><th class="text-end">TI</th><th class="text-end">JL</th>
+        <th class="text-end">%TML</th><th class="text-end">%TR</th><th class="text-end">%TI</th><th class="text-end">%JL</th><th class="text-end">Disp. Tempo</th><th class="text-end">Disp. KM</th><th class="text-end">Ocup.</th><th class="text-end">Improd.</th></tr></thead>
+      <tbody id="macro"></tbody></table></div>
+    <p class="small text-muted mt-2 mb-0">Médias ponderadas só sobre mapas válidos (regra DPO de mapas inválidos). Dispersões em módulo.</p>
+  </div>
+</main>
+<footer>Dados fictícios · HTML, CSS, JavaScript, Bootstrap e Supabase (PostgreSQL)</footer>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4"></script>
+<script src="js/app.js"></script>
+<script>
+nav('index.html');
+const $ = id => document.getElementById(id);
+let gRev, gDia;
+
+function kpi(rot, val, meta, cls = '') {
+  return `<div class="col-6 col-md-3 col-xl"><div class="cartao kpi"><div class="rot">${rot}</div><div class="val ${cls}">${val}</div><div class="meta">${meta}</div></div></div>`;
+}
+
+async function atualizar() {
+  aviso($('aviso'), '');
+  try {
+    const de = $('fDe').value, ate = $('fAte').value, rev = $('fRev').value;
+    const q = () => { let b = sb.from('v_kpi_dia').select('*').gte('data', de).lte('data', ate).order('data'); return rev ? b.eq('revenda_id', rev) : b; };
+    const rows = await all(q);
+    const dq = () => { const b = sb.from('v_dev_dia').select('pdvs,revenda_id').gte('data', de).lte('data', ate); return rev ? b.eq('revenda_id', rev) : b; };
+    const dev = await all(dq);
+    const a = agregar(rows), pdvDev = dev.reduce((s, r) => s + r.pdvs, 0);
+    const meta = rev ? (window.REVS.find(r => r.id === rev)) : { meta_tml_min: 30, meta_tr_min: 560, meta_ti_min: 30 };
+    $('kpis').innerHTML =
+      kpi('Mapas válidos', nf(a.validos, 0), `${a.invalidosHr} inválidos (horário)`) +
+      kpi('TML médio', hhmm(a.tml), `meta ${hhmm(meta.meta_tml_min)} · ${pct(a.okTml, 0)} ok`, corMeta(a.okTml)) +
+      kpi('TR médio', hhmm(a.tr), `meta ${hhmm(meta.meta_tr_min)} · ${pct(a.okTr, 0)} ok`, corMeta(a.okTr)) +
+      kpi('TI médio', hhmm(a.ti), `meta ${hhmm(meta.meta_ti_min)} · ${pct(a.okTi, 0)} ok`, corMeta(a.okTi)) +
+      kpi('JL média', hhmm(a.jl), `meta ${hhmm(meta.meta_tml_min + meta.meta_tr_min + meta.meta_ti_min)} · ${pct(a.okJl, 0)} ok`, corMeta(a.okJl)) +
+      kpi('Disp. Tempo', pct(a.dispT), 'média em módulo') + kpi('Disp. KM', pct(a.dispKm), 'média em módulo') +
+      kpi('Ocupação', pct(a.ocup, 0), `${pct(a.improd)} improdutivos`) +
+      kpi('Devolução PDV', pct(a.entregas ? pdvDev * 100 / a.entregas : null, 2), `${pdvDev} PDVs devolvidos`);
+    // macro
+    const chaves = [...new Set(rows.map(r => r.revenda + '|' + r.grupo))].sort();
+    $('macro').innerHTML = chaves.map(k => {
+      const [rv, gr] = k.split('|'), x = agregar(rows.filter(r => r.revenda === rv && r.grupo === gr));
+      const c = v => `class="text-end ${corMeta(v)}"`;
+      return `<tr><td><strong>${esc(rv)}</strong></td><td>${esc(gr)}</td><td class="text-end">${x.mapas}</td><td class="text-end">${hhmm(x.tml)}</td><td class="text-end">${hhmm(x.tr)}</td><td class="text-end">${hhmm(x.ti)}</td><td class="text-end">${hhmm(x.jl)}</td>
+        <td ${c(x.okTml)}>${pct(x.okTml, 0)}</td><td ${c(x.okTr)}>${pct(x.okTr, 0)}</td><td ${c(x.okTi)}>${pct(x.okTi, 0)}</td><td ${c(x.okJl)}>${pct(x.okJl, 0)}</td>
+        <td class="text-end">${pct(x.dispT)}</td><td class="text-end">${pct(x.dispKm)}</td><td class="text-end">${pct(x.ocup, 0)}</td><td class="text-end">${pct(x.improd)}</td></tr>`;
+    }).join('') || '<tr><td colspan="15" class="text-muted">Sem dados no período. Cadastre uma revenda e gere dados fictícios em “Revendas”.</td></tr>';
+    // gráficos
+    const revs = [...new Set(rows.map(r => r.revenda))].sort(), por = revs.map(v => agregar(rows.filter(r => r.revenda === v)));
+    gRev?.destroy(); gDia?.destroy();
+    gRev = new Chart($('cRev'), { type: 'bar', data: { labels: revs, datasets: [
+      { label: '%TML', data: por.map(x => x.okTml), backgroundColor: '#8fb8d6' }, { label: '%TR', data: por.map(x => x.okTr), backgroundColor: '#0f3b57' },
+      { label: '%TI', data: por.map(x => x.okTi), backgroundColor: '#f2a900' }, { label: '%JL', data: por.map(x => x.okJl), backgroundColor: '#5b8c5a' }] },
+      options: { maintainAspectRatio: false, scales: { y: { min: 0, max: 100, title: { display: true, text: '% mapas ≤ meta' } } } } });
+    const dias = [...new Set(rows.map(r => r.data))].sort(), pd = dias.map(d => agregar(rows.filter(r => r.data === d)));
+    gDia = new Chart($('cDia'), { type: 'line', data: { labels: dias.map(fmtData), datasets: [
+      { label: 'TML (min)', data: pd.map(x => x.tml), borderColor: '#f2a900', tension: .25, pointRadius: 0 },
+      { label: 'TR (min)', data: pd.map(x => x.tr), borderColor: '#0f3b57', tension: .25, pointRadius: 0, yAxisID: 'y2' }] },
+      options: { maintainAspectRatio: false, scales: { y: { title: { display: true, text: 'TML' } }, y2: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'TR' } } } } });
+  } catch (e) { aviso($('aviso'), 'Erro ao carregar: ' + e.message); }
+}
+
+(async () => {
+  try {
+    window.REVS = await carregarRevendas($('fRev'), { todas: true });
+    const fim = await ultimaData(); $('fAte').value = fim; $('fDe').value = addDias(fim, -29);
+    $('btn').onclick = atualizar; await atualizar();
+  } catch (e) { aviso($('aviso'), 'Erro de conexão: ' + e.message); }
+})();
+</script>
+</body></html>
